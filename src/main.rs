@@ -3,8 +3,10 @@
 // Based on candle examples
 // https://github.com/huggingface/candle/tree/main/candle-examples/examples/llama
 
+mod token_output_stream;
+
 use anyhow::{bail, Error as E, Result};
-use candle_core::{DType, Tensor};
+use candle_core::{utils, DType, Device, Tensor};
 use candle_nn::VarBuilder;
 use candle_transformers::generation::LogitsProcessor;
 use candle_transformers::models::llama as model;
@@ -75,7 +77,13 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let device = candle_examples::device(args.cpu)?;
+    // Check if GPU available
+    let device = if utils::cuda_is_available() {
+        Device::new_cuda(0)?
+    } else {
+        Device::Cpu
+    };
+
     let dtype = match args.dtype.as_deref() {
         Some("f16") => DType::F16,
         Some("bf16") => DType::BF16,
@@ -107,15 +115,18 @@ fn main() -> Result<()> {
         .map_err(E::msg)?
         .get_ids()
         .to_vec();
-    let mut tokenizer = candle_examples::token_output_stream::TokenOutputStream::new(tokenizer);
+    let mut tokenizer = token_output_stream::TokenOutputStream::new(tokenizer);
 
     println!("starting the inference loop");
     println!("{prompt}");
+
     let mut logits_processor =
         LogitsProcessor::new(args.seed, Some(args.temperature), Some(args.top_p));
+
     let start_gen = std::time::Instant::now();
     let mut index_pos = 0;
     let mut token_generated = 0;
+
     for index in 0..args.sample_len {
         let (context_size, context_index) = if cache.use_kv_cache && index > 0 {
             (1, index_pos)
