@@ -3,7 +3,7 @@ Running LLaMA 3 with Rust.
 
 ## Running
 ```sh
-cargo run --release --features cuda -- --model-id /path/to/Meta-Llama-3-8B-Instruct
+cargo run --release --features flash-attn
 ```
 
 ## References
