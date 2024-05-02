@@ -110,7 +110,7 @@ pub struct LlamaChat {
     cache: llama::Cache,
     logits_processor: LogitsProcessor,
     tokenizer: Tokenizer,
-    eos_token_id: u32,
+    eos_token_ids: HashSet<u32>,
     config: ChatConfig,
 }
 
@@ -185,13 +185,16 @@ impl LlamaChat {
         let tokenizer = Tokenizer::from_file(model_path)
             .map_err(|e| LlamaError::InvalidConfig(e.to_string()))?;
 
-        // Override EOS token id?
-        let Some(eos_token_id) = (match &config.eos_token {
-            Some(eos_token) => tokenizer.token_to_id(eos_token),
-            None => model_config.eos_token_id,
-        }) else {
-            return Err(LlamaError::InvalidConfig("Invalid EOS token".to_string()));
-        };
+        // Additional EOS token id?
+        let mut eos_token_ids = HashSet::new();
+        if let Some(id) = model_config.eos_token_id {
+            eos_token_ids.insert(id);
+        }
+        let _ = config
+            .eos_token
+            .as_ref()
+            .and_then(|t| tokenizer.token_to_id(t))
+            .map(|t| eos_token_ids.insert(t));
 
         // Init sampler
         let logits_processor =
@@ -202,7 +205,7 @@ impl LlamaChat {
             cache,
             logits_processor,
             tokenizer,
-            eos_token_id,
+            eos_token_ids,
             config: config.to_owned(),
         })
     }
@@ -270,7 +273,7 @@ impl LlamaChat {
             tokens.push(next_token);
 
             // End of generation?
-            if next_token == self.eos_token_id {
+            if self.eos_token_ids.contains(&next_token) {
                 break;
             }
         }
