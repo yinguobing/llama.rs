@@ -49,7 +49,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let mut model = LlamaChat::new(model_path, &config)?;
 
     // Init conversation
-    let messages: Vec<Message> = vec![
+    let mut messages: Vec<Message> = vec![
         Message {
             role: Role::System,
             content: "You are a helpful assistant.".to_string(),
@@ -60,16 +60,18 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         },
     ];
     let prompt = model.encode(&messages);
-    println!("{prompt}");
 
     // Generating
-    let start_gen = std::time::Instant::now();
     let response = model.generate(&prompt)?;
-    let duration = start_gen.elapsed();
-    println!("{response}");
 
-    // Metrics
-    println!("Done in {} seconds.", duration.as_secs());
+    // Show results
+    messages.push(Message {
+        role: Role::Assistant,
+        content: response,
+    });
+    for m in messages {
+        println!("{m}");
+    }
 
     Ok(())
 }

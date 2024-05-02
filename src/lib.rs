@@ -4,6 +4,7 @@
 // https://github.com/huggingface/candle/tree/main/candle-examples/examples/llama
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -35,12 +36,24 @@ pub fn auto_device() -> Device {
     }
 }
 
+#[derive(Debug)]
 pub enum Role {
     System,
     User,
     Assistant,
 }
 
+impl fmt::Display for Role {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            Role::System => write!(f, "system"),
+            Role::User => write!(f, "user"),
+            Role::Assistant => write!(f, "assistant"),
+        }
+    }
+}
+
+#[derive(Debug)]
 pub struct Message {
     pub role: Role,
     pub content: String,
@@ -68,6 +81,12 @@ impl Message {
                 )
             }
         }
+    }
+}
+
+impl fmt::Display for Message {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: {}", self.role, self.content)
     }
 }
 
