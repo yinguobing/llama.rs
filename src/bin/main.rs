@@ -1,5 +1,5 @@
 // Chat with LLaMA 3
-use llama::{auto_device, ChatConfig, DType, LlamaChat};
+use llama::{auto_device, ChatConfig, DType, LlamaChat, Message, Role};
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let model_path: &str = "/home/robin/hdd/Meta-Llama-3-8B-Instruct";
@@ -25,7 +25,7 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Override EOS token
     let eos_token = Some("<|eot_id|>".to_string());
 
-    // Logit sampling parameters
+    // Logits sampling parameters
     let temperature = 0.8;
     let top_p = 0.9;
     let seed = 299792458;
@@ -48,22 +48,28 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     // Init model
     let mut model = LlamaChat::new(model_path, &config)?;
 
-    // Init tokens
-    let prompt: &str = r"<|begin_of_text|><|start_header_id|>system<|end_header_id|>
-
-You are a helpful assistant.<|eot_id|><|start_header_id|>user<|end_header_id|>
-
-Who are you?<|eot_id|><|start_header_id|>assistant<|end_header_id|>";
+    // Init conversation
+    let messages: Vec<Message> = vec![
+        Message {
+            role: Role::System,
+            content: "You are a helpful assistant.".to_string(),
+        },
+        Message {
+            role: Role::User,
+            content: "Who are you?".to_string(),
+        },
+    ];
+    let prompt = model.encode(&messages);
     println!("{prompt}");
 
     // Generating
     let start_gen = std::time::Instant::now();
-    let result = model.generate(prompt)?;
-    print!("{result}");
+    let response = model.generate(&prompt)?;
     let duration = start_gen.elapsed();
+    println!("{response}");
 
     // Metrics
-    println!("Done in {} seconds.", duration.as_secs_f64());
+    println!("Done in {} seconds.", duration.as_secs());
 
     Ok(())
 }

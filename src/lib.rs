@@ -23,6 +23,8 @@ pub enum LlamaError {
     TokenizerError(String),
     #[error("Infer error, {0}")]
     InferError(String),
+    #[error("Prompt error, {0}")]
+    PromptError(String),
 }
 
 pub fn auto_device() -> Device {
@@ -30,6 +32,42 @@ pub fn auto_device() -> Device {
         Device::new_cuda(0).unwrap()
     } else {
         Device::Cpu
+    }
+}
+
+pub enum Role {
+    System,
+    User,
+    Assistant,
+}
+
+pub struct Message {
+    pub role: Role,
+    pub content: String,
+}
+
+impl Message {
+    fn encode(&self) -> String {
+        match self.role {
+            Role::System => {
+                format!(
+                    "<|start_header_id|>system<|end_header_id|>\n{}<|eot_id|>",
+                    self.content
+                )
+            }
+            Role::User => {
+                format!(
+                    "<|start_header_id|>user<|end_header_id|>\n{}<|eot_id|>",
+                    self.content
+                )
+            }
+            Role::Assistant => {
+                format!(
+                    "<|start_header_id|>assistant<|end_header_id|>\n{}<|eot_id|>",
+                    self.content
+                )
+            }
+        }
     }
 }
 
@@ -55,12 +93,6 @@ pub struct LlamaChat {
     tokenizer: Tokenizer,
     eos_token_id: u32,
     config: ChatConfig,
-}
-
-pub enum Role {
-    System,
-    User,
-    Assistant,
 }
 
 #[derive(Debug, Deserialize)]
@@ -156,6 +188,16 @@ impl LlamaChat {
         })
     }
 
+    pub fn encode(&self, msgs: &Vec<Message>) -> String {
+        let mut encoded = String::new();
+        encoded.push_str("<|begin_of_text|>");
+        for msg in msgs {
+            encoded.push_str(&msg.encode());
+        }
+        encoded.push_str("<|start_header_id|>assistant<|end_header_id|>\n");
+        encoded
+    }
+
     pub fn generate(&mut self, prompt: &str) -> Result<String, LlamaError> {
         let mut tokens = self
             .tokenizer
@@ -163,6 +205,7 @@ impl LlamaChat {
             .map_err(|e| LlamaError::TokenizerError(e.to_string()))?
             .get_ids()
             .to_vec();
+        let prompt_len = tokens.len();
 
         let mut current_index = 0;
         for index in 0..self.config.max_context_length {
@@ -216,7 +259,9 @@ impl LlamaChat {
         // Decode the tokens
         Ok(self
             .tokenizer
-            .decode(&tokens, true)
-            .map_err(|e| LlamaError::InferError(e.to_string()))?)
+            .decode(&tokens[prompt_len..], true)
+            .map_err(|e| LlamaError::InferError(e.to_string()))?
+            .trim()
+            .to_string())
     }
 }
