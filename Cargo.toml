@@ -1,7 +1,13 @@
 [package]
-name = "llama"
+name = "llama3"
 version = "0.1.0"
 edition = "2021"
+description = "Running LLaMA 3"
+license = "MIT OR Apache-2.0"
+authors = ["尹国冰", "yinguobing <yinguobing@gmail.com>"]
+repository = "https://github.com/yinguobing/llama.rs"
+keywords = ["LLM", "LLaMA", "AI"]
+readme = "README.md"
 
 [dependencies]
 candle-core = { git = "https://github.com/huggingface/candle.git", version = "0.5.0" }

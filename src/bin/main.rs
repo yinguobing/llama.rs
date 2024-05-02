@@ -1,5 +1,5 @@
 // Chat with LLaMA 3
-use llama::{auto_device, ChatConfig, DType, LlamaChat, Message, Role};
+use llama3::{auto_device, ChatConfig, DType, LlamaChat, Message, Role};
 use std::io::Write;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
