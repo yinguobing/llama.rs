@@ -1,5 +1,6 @@
 // Chat with LLaMA 3
 use llama::{auto_device, ChatConfig, DType, LlamaChat, Message, Role};
+use std::io::Write;
 
 fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let model_path: &str = "/home/robin/hdd/Meta-Llama-3-8B-Instruct";
@@ -60,18 +61,43 @@ fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
         },
     ];
     let prompt = model.encode(&messages);
+    for m in messages.iter() {
+        println!("{m}");
+    }
 
     // Generating
-    let response = model.generate(&prompt)?;
+    model.generate(&prompt)?;
+    let mut response = String::new();
+    for r in &mut model {
+        let s = r?;
+        print!("{}", s);
+        std::io::stdout().flush().unwrap();
+        response.push_str(&s);
+    }
+    println!();
 
-    // Show results
+    // Update conversation
     messages.push(Message {
         role: Role::Assistant,
         content: response,
     });
-    for m in messages {
-        println!("{m}");
+    messages.push(Message {
+        role: Role::User,
+        content: "My name is Robin! Tell me something about this name.".to_string(),
+    });
+    let prompt = model.encode(&messages);
+    println!("{}", messages.last().unwrap());
+
+    // Generating
+    model.generate(&prompt)?;
+    let mut response = String::new();
+    for r in &mut model {
+        let s = r?;
+        print!("{}", s);
+        std::io::stdout().flush().unwrap();
+        response.push_str(&s);
     }
+    println!();
 
     Ok(())
 }

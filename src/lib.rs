@@ -28,9 +28,10 @@ pub enum LlamaError {
     PromptError(String),
 }
 
+/// Returns the best device to use for inference.
 pub fn auto_device() -> Device {
     if utils::cuda_is_available() {
-        Device::new_cuda(0).unwrap()
+        Device::new_cuda(0).unwrap_or(Device::Cpu)
     } else {
         Device::Cpu
     }
@@ -106,12 +107,15 @@ pub struct ChatConfig {
 }
 
 pub struct LlamaChat {
+    config: ChatConfig,
     model: llama::Llama,
     cache: llama::Cache,
     logits_processor: LogitsProcessor,
     tokenizer: Tokenizer,
+    tokens: Vec<u32>,
     eos_token_ids: HashSet<u32>,
-    config: ChatConfig,
+    index: u64,
+    current_index: usize,
 }
 
 #[derive(Debug, Deserialize)]
@@ -205,8 +209,11 @@ impl LlamaChat {
             cache,
             logits_processor,
             tokenizer,
+            tokens: vec![],
             eos_token_ids,
             config: config.to_owned(),
+            index: 0,
+            current_index: 0,
         })
     }
 
@@ -220,70 +227,95 @@ impl LlamaChat {
         encoded
     }
 
-    pub fn generate(&mut self, prompt: &str) -> Result<String, LlamaError> {
-        let mut tokens = self
+    pub fn generate(&mut self, prompt: &str) -> Result<(), LlamaError> {
+        self.tokens = self
             .tokenizer
             .encode(prompt, true)
             .map_err(|e| LlamaError::TokenizerError(e.to_string()))?
             .get_ids()
             .to_vec();
-        let prompt_len = tokens.len();
+        self.index = 0;
+        self.current_index = 0;
+        Ok(())
+    }
+}
 
-        let mut current_index = 0;
-        for index in 0..self.config.max_context_length {
-            let (context_size, context_index) = if self.cache.use_kv_cache && index > 0 {
-                (1, current_index)
-            } else {
-                (tokens.len(), 0)
-            };
-            let context = &tokens[tokens.len().saturating_sub(context_size)..];
-            let input = Tensor::new(context, &self.config.device)
-                .map_err(|e| LlamaError::InferError(e.to_string()))?
-                .unsqueeze(0)
-                .map_err(|e| LlamaError::InferError(e.to_string()))?;
-            let logits = self
-                .model
-                .forward(&input, context_index, &mut self.cache)
-                .map_err(|e| LlamaError::InferError(e.to_string()))?;
-            let logits = logits
-                .squeeze(0)
-                .map_err(|e| LlamaError::InferError(e.to_string()))?;
+impl Iterator for &mut LlamaChat {
+    type Item = Result<String, LlamaError>;
 
-            // Suppress repetition?
-            let logits = if self.config.repeat_penalty == 1. {
-                logits
-            } else {
-                let start_at = tokens
-                    .len()
-                    .saturating_sub(self.config.repeat_last_n as usize);
-                candle_transformers::utils::apply_repeat_penalty(
-                    &logits,
-                    self.config.repeat_penalty,
-                    &tokens[start_at..],
-                )
-                .map_err(|e| LlamaError::InferError(e.to_string()))?
-            };
-            current_index += context.len();
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.index == self.config.max_context_length {
+            return None;
+        }
 
-            // Sample a token from the model output
-            let next_token = self
-                .logits_processor
-                .sample(&logits)
-                .map_err(|e| LlamaError::InferError(e.to_string()))?;
-            tokens.push(next_token);
-
-            // End of generation?
-            if self.eos_token_ids.contains(&next_token) {
-                break;
+        let (context_size, context_index) = if self.cache.use_kv_cache && self.index > 0 {
+            (1, self.current_index)
+        } else {
+            (self.tokens.len(), 0)
+        };
+        let context = &self.tokens[self.tokens.len().saturating_sub(context_size)..];
+        let input = match Tensor::new(context, &self.config.device).and_then(|x| x.unsqueeze(0)) {
+            Ok(x) => x,
+            Err(e) => {
+                return Some(Err(LlamaError::InferError(e.to_string())));
             }
+        };
+
+        let logits = match self
+            .model
+            .forward(&input, context_index, &mut self.cache)
+            .and_then(|x| x.squeeze(0))
+        {
+            Ok(x) => x,
+            Err(e) => {
+                return Some(Err(LlamaError::InferError(e.to_string())));
+            }
+        };
+
+        // Suppress repetition?
+        let logits = if self.config.repeat_penalty == 1. {
+            logits
+        } else {
+            let start_at = self
+                .tokens
+                .len()
+                .saturating_sub(self.config.repeat_last_n as usize);
+            match candle_transformers::utils::apply_repeat_penalty(
+                &logits,
+                self.config.repeat_penalty,
+                &self.tokens[start_at..],
+            ) {
+                Ok(x) => x,
+                Err(e) => {
+                    return Some(Err(LlamaError::InferError(e.to_string())));
+                }
+            }
+        };
+        self.current_index += context.len();
+
+        // Sample a token from the model output
+        let next_token = match self.logits_processor.sample(&logits) {
+            Ok(x) => x,
+            Err(e) => {
+                return Some(Err(LlamaError::InferError(e.to_string())));
+            }
+        };
+        self.tokens.push(next_token);
+
+        // End of generation?
+        if self.eos_token_ids.contains(&next_token) {
+            return None;
         }
 
         // Decode the tokens
-        Ok(self
-            .tokenizer
-            .decode(&tokens[prompt_len..], true)
-            .map_err(|e| LlamaError::InferError(e.to_string()))?
-            .trim()
-            .to_string())
+        let result = match self.tokenizer.decode(&[next_token], true) {
+            Ok(x) => x,
+            Err(e) => {
+                return Some(Err(LlamaError::InferError(e.to_string())));
+            }
+        };
+        self.index += 1;
+
+        Some(Ok(result))
     }
 }
